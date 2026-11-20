@@ -1,0 +1,662 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // =========================================================
+    // Global Hardened Primitives
+    // =========================================================
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isBootstrappedAdmin() {
+      return isSignedIn()
+        && request.auth.token.email == 'bhkang1030@gmail.com'
+        && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isBootstrappedAdmin()
+        || (isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+    }
+
+    function isActiveEmployee() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'active';
+    }
+
+    function isAuthorizedUser() {
+      return isAdmin() || isActiveEmployee();
+    }
+
+    function normalizedCallerInviteId() {
+      return request.auth.token.email.lower().replace('[^a-z0-9]', '_');
+    }
+
+    // =========================================================
+    // Entity Validation Blueprints (Anti-Update-Gap)
+    // =========================================================
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['user_id', 'name', 'login_id', 'email', 'department', 'role', 'status', 'created_at', 'updated_at'])
+        && data.keys().hasOnly(['user_id', 'name', 'login_id', 'email', 'department', 'role', 'status', 'created_at', 'updated_at'])
+        && isValidId(data.user_id)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 60
+        && data.login_id is string && data.login_id.size() >= 2 && data.login_id.size() <= 80 && data.login_id.matches('^[a-zA-Z0-9._@\\-]+$')
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
+        && data.department is string && data.department.size() <= 60
+        && data.role in ['employee', 'admin']
+        && data.status in ['active', 'inactive']
+        && data.created_at is timestamp
+        && data.updated_at is timestamp;
+    }
+
+    function isValidAdminRegistry(data) {
+      return data.keys().hasAll(['user_id', 'granted_by', 'created_at'])
+        && data.keys().hasOnly(['user_id', 'granted_by', 'created_at'])
+        && isValidId(data.user_id)
+        && isValidId(data.granted_by)
+        && data.created_at is timestamp;
+    }
+
+    function isValidInvitedUser(data) {
+      return data.keys().hasAll(['invite_id', 'email', 'name', 'login_id', 'department', 'role', 'status', 'created_by', 'created_at', 'updated_at'])
+        && data.keys().hasOnly(['invite_id', 'email', 'name', 'login_id', 'department', 'role', 'status', 'created_by', 'created_at', 'updated_at'])
+        && isValidId(data.invite_id)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 60
+        && data.login_id is string && data.login_id.size() >= 2 && data.login_id.size() <= 80 && data.login_id.matches('^[a-zA-Z0-9._@\\-]+$')
+        && data.department is string && data.department.size() <= 60
+        && data.role in ['employee', 'admin']
+        && data.status in ['pending', 'claimed', 'revoked']
+        && isValidId(data.created_by)
+        && data.created_at is timestamp
+        && data.updated_at is timestamp;
+    }
+
+    function isValidRoom(data) {
+      return data.keys().hasAll(['room_id', 'room_name', 'floor', 'capacity', 'amenities', 'status', 'updated_at'])
+        && data.keys().hasOnly(['room_id', 'room_name', 'floor', 'capacity', 'amenities', 'status', 'updated_at'])
+        && isValidId(data.room_id)
+        && data.room_name is string && data.room_name.size() >= 1 && data.room_name.size() <= 60
+        && data.floor in [7, 10]
+        && data.capacity is int && data.capacity >= 1 && data.capacity <= 100
+        && data.amenities is string && data.amenities.size() <= 120
+        && data.status in ['available', 'unavailable']
+        && data.updated_at is timestamp;
+    }
+
+    function isValidRoomReservation(data) {
+      return data.keys().hasAll([
+          'reservation_id', 'room_id', 'room_name', 'floor', 'user_id', 'user_name',
+          'date', 'start_hour', 'end_hour', 'start_at', 'end_at', 'purpose',
+          'status', 'created_at', 'updated_at'
+        ])
+        && data.keys().hasOnly([
+          'reservation_id', 'room_id', 'room_name', 'floor', 'user_id', 'user_name',
+          'date', 'start_hour', 'end_hour', 'start_at', 'end_at', 'purpose',
+          'status', 'created_at', 'updated_at'
+        ])
+        && isValidId(data.reservation_id)
+        && isValidId(data.room_id)
+        && data.room_name is string && data.room_name.size() >= 1 && data.room_name.size() <= 60
+        && data.floor in [7, 10]
+        && isValidId(data.user_id)
+        && data.user_name is string && data.user_name.size() >= 1 && data.user_name.size() <= 60
+        && data.date is string && data.date.size() == 10 && data.date.matches('^\\d{4}-\\d{2}-\\d{2}$')
+        && data.start_hour is int && data.start_hour >= 9 && data.start_hour <= 17
+        && data.end_hour is int && data.end_hour >= 10 && data.end_hour <= 18
+        && data.end_hour > data.start_hour
+        && (data.end_hour - data.start_hour) <= 4
+        && data.start_at is string && data.start_at.size() >= 10 && data.start_at.size() <= 40
+        && data.end_at is string && data.end_at.size() >= 10 && data.end_at.size() <= 40
+        && data.purpose is string && data.purpose.size() <= 120
+        && data.status in ['confirmed', 'cancelled']
+        && data.created_at is timestamp
+        && data.updated_at is timestamp;
+    }
+
+    function isValidRoomSlot(data) {
+      return data.keys().hasAll([
+          'slot_id', 'room_id', 'reservation_id', 'user_id', 'user_name',
+          'date', 'hour', 'status', 'created_at'
+        ])
+        && data.keys().hasOnly([
+          'slot_id', 'room_id', 'reservation_id', 'user_id', 'user_name',
+          'date', 'hour', 'status', 'created_at'
+        ])
+        && isValidId(data.slot_id)
+        && isValidId(data.room_id)
+        && isValidId(data.reservation_id)
+        && isValidId(data.user_id)
+        && data.user_name is string && data.user_name.size() >= 1 && data.user_name.size() <= 60
+        && data.date is string && data.date.size() == 10 && data.date.matches('^\\d{4}-\\d{2}-\\d{2}$')
+        && data.hour is int && data.hour >= 9 && data.hour <= 17
+        && data.status == 'booked'
+        && data.created_at is timestamp;
+    }
+
+    function isValidEquipment(data) {
+      return data.keys().hasAll([
+          'equipment_id', 'type', 'management_number', 'storage_location',
+          'status', 'current_loan_id', 'current_borrower_name', 'current_due_at', 'updated_at'
+        ])
+        && data.keys().hasOnly([
+          'equipment_id', 'type', 'management_number', 'storage_location',
+          'status', 'current_loan_id', 'current_borrower_name', 'current_due_at', 'updated_at'
+        ])
+        && isValidId(data.equipment_id)
+        && data.type in ['laptop', 'tablet', 'camera']
+        && data.management_number is string && data.management_number.size() >= 1 && data.management_number.size() <= 40
+        && data.storage_location is string && data.storage_location.size() >= 1 && data.storage_location.size() <= 60
+        && data.status in ['available', 'rented', 'unavailable']
+        && data.current_loan_id is string && data.current_loan_id.size() <= 128
+        && data.current_borrower_name is string && data.current_borrower_name.size() <= 60
+        && data.current_due_at is string && data.current_due_at.size() <= 40
+        && data.updated_at is timestamp;
+    }
+
+    function isValidEquipmentLoan(data) {
+      return data.keys().hasAll([
+          'loan_id', 'equipment_id', 'equipment_type', 'management_number',
+          'user_id', 'user_name', 'start_at', 'due_at', 'purpose',
+          'approval_status', 'approved_by', 'reject_reason', 'returned_at',
+          'created_at', 'updated_at'
+        ])
+        && data.keys().hasOnly([
+          'loan_id', 'equipment_id', 'equipment_type', 'management_number',
+          'user_id', 'user_name', 'start_at', 'due_at', 'purpose',
+          'approval_status', 'approved_by', 'reject_reason', 'returned_at',
+          'created_at', 'updated_at'
+        ])
+        && isValidId(data.loan_id)
+        && isValidId(data.equipment_id)
+        && data.equipment_type in ['laptop', 'tablet', 'camera']
+        && data.management_number is string && data.management_number.size() >= 1 && data.management_number.size() <= 40
+        && isValidId(data.user_id)
+        && data.user_name is string && data.user_name.size() >= 1 && data.user_name.size() <= 60
+        && data.start_at is string && data.start_at.size() >= 10 && data.start_at.size() <= 40
+        && data.due_at is string && data.due_at.size() >= 10 && data.due_at.size() <= 40
+        && data.purpose is string && data.purpose.size() <= 160
+        && data.approval_status in ['pending', 'approved', 'rejected', 'returned', 'cancelled']
+        && data.approved_by is string && data.approved_by.size() <= 128
+        && data.reject_reason is string && data.reject_reason.size() <= 160
+        && data.returned_at is string && data.returned_at.size() <= 40
+        && data.created_at is timestamp
+        && data.updated_at is timestamp;
+    }
+
+    function isValidNotification(data) {
+      return data.keys().hasAll([
+          'notification_id', 'user_id', 'target_scope', 'title',
+          'message', 'type', 'related_id', 'is_read', 'created_at'
+        ])
+        && data.keys().hasOnly([
+          'notification_id', 'user_id', 'target_scope', 'title',
+          'message', 'type', 'related_id', 'is_read', 'created_at'
+        ])
+        && isValidId(data.notification_id)
+        && isValidId(data.user_id)
+        && data.target_scope in ['user', 'admin']
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 80
+        && data.message is string && data.message.size() >= 1 && data.message.size() <= 240
+        && data.type in [
+          'room_booked', 'room_cancelled', 'loan_requested',
+          'loan_approved', 'loan_rejected', 'return_due', 'loan_returned'
+        ]
+        && data.related_id is string && data.related_id.size() <= 128
+        && data.is_read is bool
+        && data.created_at is timestamp;
+    }
+
+    function isValidActivityLog(data) {
+      return data.keys().hasAll([
+          'log_id', 'actor_id', 'actor_name', 'action', 'target_id', 'summary', 'created_at'
+        ])
+        && data.keys().hasOnly([
+          'log_id', 'actor_id', 'actor_name', 'action', 'target_id', 'summary', 'created_at'
+        ])
+        && isValidId(data.log_id)
+        && isValidId(data.actor_id)
+        && data.actor_name is string && data.actor_name.size() >= 1 && data.actor_name.size() <= 60
+        && data.action is string && data.action.size() >= 1 && data.action.size() <= 80
+        && data.target_id is string && data.target_id.size() >= 1 && data.target_id.size() <= 128
+        && data.summary is string && data.summary.size() >= 1 && data.summary.size() <= 200
+        && data.created_at is timestamp;
+    }
+
+    function isValidPolicySettings(data) {
+      return data.keys().hasAll([
+          'cancel_deadline_minutes', 'loan_day_calc_mode', 'max_loan_days',
+          'max_room_hours', 'booking_horizon_days', 'updated_at'
+        ])
+        && data.keys().hasOnly([
+          'cancel_deadline_minutes', 'loan_day_calc_mode', 'max_loan_days',
+          'max_room_hours', 'booking_horizon_days', 'updated_at'
+        ])
+        && data.cancel_deadline_minutes is int && data.cancel_deadline_minutes >= 0 && data.cancel_deadline_minutes <= 1440
+        && data.loan_day_calc_mode in ['calendar', 'business']
+        && data.max_loan_days is int && data.max_loan_days >= 1 && data.max_loan_days <= 30
+        && data.max_room_hours is int && data.max_room_hours >= 1 && data.max_room_hours <= 9
+        && data.booking_horizon_days is int && data.booking_horizon_days >= 1 && data.booking_horizon_days <= 90
+        && data.updated_at is timestamp;
+    }
+
+    // =========================================================
+    // Collection Rules
+    // =========================================================
+
+    // 1. Users (PII Isolated: email & login_id readable only by owner or admin)
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (request.auth.uid == userId || isAdmin());
+      allow list: if isAdmin();
+
+      allow create: if isSignedIn()
+        && isValidId(userId)
+        && isValidUser(incoming())
+        && incoming().user_id == userId
+        && incoming().created_at == request.time
+        && incoming().updated_at == request.time
+        && (
+          isAdmin()
+          || (
+            request.auth.uid == userId
+            && request.auth.token.email_verified == true
+            && incoming().email == request.auth.token.email
+            && incoming().status == 'active'
+            && exists(/databases/$(database)/documents/invited_users/$(normalizedCallerInviteId()))
+            && get(/databases/$(database)/documents/invited_users/$(normalizedCallerInviteId())).data.status == 'pending'
+            && get(/databases/$(database)/documents/invited_users/$(normalizedCallerInviteId())).data.email == request.auth.token.email
+            && get(/databases/$(database)/documents/invited_users/$(normalizedCallerInviteId())).data.role == incoming().role
+            && get(/databases/$(database)/documents/invited_users/$(normalizedCallerInviteId())).data.login_id == incoming().login_id
+            && getAfter(/databases/$(database)/documents/invited_users/$(normalizedCallerInviteId())).data.status == 'claimed'
+          )
+        );
+
+      allow update: if isSignedIn()
+        && isValidId(userId)
+        && isValidUser(incoming())
+        && incoming().user_id == existing().user_id
+        && incoming().created_at == existing().created_at
+        && incoming().updated_at == request.time
+        && isAdmin()
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'login_id', 'email', 'department', 'role', 'status', 'updated_at']);
+
+      allow delete: if false;
+    }
+
+    // 2. Trusted Admin Registry
+    match /admins/{adminUid} {
+      allow get: if isSignedIn() && isValidId(adminUid) && (request.auth.uid == adminUid || isAdmin());
+      allow list: if isAdmin();
+
+      allow create: if isSignedIn()
+        && isValidId(adminUid)
+        && isValidAdminRegistry(incoming())
+        && incoming().user_id == adminUid
+        && incoming().created_at == request.time
+        && (
+          (isAdmin() && incoming().granted_by == request.auth.uid)
+          || (
+            request.auth.uid == adminUid
+            && request.auth.token.email_verified == true
+            && exists(/databases/$(database)/documents/invited_users/$(normalizedCallerInviteId()))
+            && get(/databases/$(database)/documents/invited_users/$(normalizedCallerInviteId())).data.status == 'pending'
+            && get(/databases/$(database)/documents/invited_users/$(normalizedCallerInviteId())).data.role == 'admin'
+            && get(/databases/$(database)/documents/invited_users/$(normalizedCallerInviteId())).data.email == request.auth.token.email
+            && getAfter(/databases/$(database)/documents/invited_users/$(normalizedCallerInviteId())).data.status == 'claimed'
+          )
+        );
+
+      allow update: if false;
+      allow delete: if isSignedIn() && isValidId(adminUid) && isAdmin() && adminUid != request.auth.uid;
+    }
+
+    // 3. Invited Users (Admin pre-authorized onboarding; zero self-signup)
+    match /invited_users/{inviteId} {
+      allow get: if isSignedIn()
+        && isValidId(inviteId)
+        && (
+          isAdmin()
+          || (request.auth.token.email_verified == true && inviteId == normalizedCallerInviteId())
+        );
+      allow list: if isAdmin();
+
+      allow create: if isSignedIn()
+        && isValidId(inviteId)
+        && isValidInvitedUser(incoming())
+        && incoming().invite_id == inviteId
+        && incoming().status == 'pending'
+        && incoming().created_by == request.auth.uid
+        && incoming().created_at == request.time
+        && incoming().updated_at == request.time
+        && isAdmin();
+
+      allow update: if isSignedIn()
+        && isValidId(inviteId)
+        && isValidInvitedUser(incoming())
+        && incoming().invite_id == existing().invite_id
+        && incoming().email == existing().email
+        && incoming().created_by == existing().created_by
+        && incoming().created_at == existing().created_at
+        && incoming().updated_at == request.time
+        && (
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'login_id', 'department', 'role', 'status', 'updated_at']))
+          || (
+            request.auth.token.email_verified == true
+            && inviteId == normalizedCallerInviteId()
+            && existing().email == request.auth.token.email
+            && existing().status == 'pending'
+            && incoming().status == 'claimed'
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updated_at'])
+            && existsAfter(/databases/$(database)/documents/users/$(request.auth.uid))
+          )
+        );
+
+      allow delete: if isSignedIn() && isValidId(inviteId) && isAdmin();
+    }
+
+    // 4. Meeting Rooms (11 rooms across 7F and 10F)
+    match /rooms/{roomId} {
+      allow get: if isSignedIn() && isValidId(roomId);
+      allow list: if isSignedIn() && resource.data.status in ['available', 'unavailable'];
+
+      allow create: if isSignedIn()
+        && isValidId(roomId)
+        && isValidRoom(incoming())
+        && incoming().room_id == roomId
+        && incoming().updated_at == request.time
+        && isAdmin();
+
+      allow update: if isSignedIn()
+        && isValidId(roomId)
+        && isValidRoom(incoming())
+        && incoming().room_id == existing().room_id
+        && incoming().updated_at == request.time
+        && isAdmin()
+        && incoming().diff(existing()).affectedKeys().hasOnly(['room_name', 'floor', 'capacity', 'amenities', 'status', 'updated_at']);
+
+      allow delete: if false;
+    }
+
+    // 5. Room Reservations
+    match /room_reservations/{reservationId} {
+      allow get: if isSignedIn()
+        && isValidId(reservationId)
+        && (existing().user_id == request.auth.uid || isAdmin());
+
+      allow list: if isSignedIn()
+        && (resource.data.user_id == request.auth.uid || isAdmin());
+
+      allow create: if isSignedIn()
+        && isValidId(reservationId)
+        && isValidRoomReservation(incoming())
+        && incoming().reservation_id == reservationId
+        && incoming().user_id == request.auth.uid
+        && incoming().status == 'confirmed'
+        && incoming().created_at == request.time
+        && incoming().updated_at == request.time
+        && isAuthorizedUser()
+        && exists(/databases/$(database)/documents/rooms/$(incoming().room_id))
+        && get(/databases/$(database)/documents/rooms/$(incoming().room_id)).data.status == 'available';
+
+      allow update: if isSignedIn()
+        && isValidId(reservationId)
+        && isValidRoomReservation(incoming())
+        && incoming().reservation_id == existing().reservation_id
+        && incoming().room_id == existing().room_id
+        && incoming().room_name == existing().room_name
+        && incoming().floor == existing().floor
+        && incoming().user_id == existing().user_id
+        && incoming().user_name == existing().user_name
+        && incoming().date == existing().date
+        && incoming().start_hour == existing().start_hour
+        && incoming().end_hour == existing().end_hour
+        && incoming().start_at == existing().start_at
+        && incoming().end_at == existing().end_at
+        && incoming().purpose == existing().purpose
+        && incoming().created_at == existing().created_at
+        && incoming().updated_at == request.time
+        && existing().status == 'confirmed'
+        && incoming().status == 'cancelled'
+        && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updated_at'])
+        && ((existing().user_id == request.auth.uid && isAuthorizedUser()) || isAdmin());
+
+      allow delete: if false;
+    }
+
+    // 6. Room Hourly Slot Locks (Atomic DB-Level Double-Booking Prevention)
+    match /room_slots/{slotId} {
+      allow get: if isSignedIn() && isValidId(slotId);
+      allow list: if isSignedIn() && resource.data.status == 'booked';
+
+      allow create: if isSignedIn()
+        && isValidId(slotId)
+        && isValidRoomSlot(incoming())
+        && incoming().slot_id == slotId
+        && incoming().user_id == request.auth.uid
+        && incoming().status == 'booked'
+        && incoming().created_at == request.time
+        && isAuthorizedUser()
+        && exists(/databases/$(database)/documents/rooms/$(incoming().room_id))
+        && existsAfter(/databases/$(database)/documents/room_reservations/$(incoming().reservation_id));
+
+      allow update: if false;
+
+      allow delete: if isSignedIn()
+        && isValidId(slotId)
+        && ((existing().user_id == request.auth.uid && isAuthorizedUser()) || isAdmin())
+        && getAfter(/databases/$(database)/documents/room_reservations/$(existing().reservation_id)).data.status == 'cancelled';
+    }
+
+    // 7. Shared Equipment (13 items stored in 7F storage)
+    match /equipment/{equipmentId} {
+      allow get: if isSignedIn() && isValidId(equipmentId);
+      allow list: if isSignedIn() && resource.data.status in ['available', 'rented', 'unavailable'];
+
+      allow create: if isSignedIn()
+        && isValidId(equipmentId)
+        && isValidEquipment(incoming())
+        && incoming().equipment_id == equipmentId
+        && incoming().updated_at == request.time
+        && isAdmin();
+
+      allow update: if isSignedIn()
+        && isValidId(equipmentId)
+        && isValidEquipment(incoming())
+        && incoming().equipment_id == existing().equipment_id
+        && incoming().updated_at == request.time
+        && isAdmin()
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'type', 'management_number', 'storage_location', 'status',
+          'current_loan_id', 'current_borrower_name', 'current_due_at', 'updated_at'
+        ]);
+
+      allow delete: if false;
+    }
+
+    // 8. Equipment Loans
+    match /equipment_loans/{loanId} {
+      allow get: if isSignedIn()
+        && isValidId(loanId)
+        && (existing().user_id == request.auth.uid || isAdmin());
+
+      allow list: if isSignedIn()
+        && (resource.data.user_id == request.auth.uid || isAdmin());
+
+      allow create: if isSignedIn()
+        && isValidId(loanId)
+        && isValidEquipmentLoan(incoming())
+        && incoming().loan_id == loanId
+        && incoming().user_id == request.auth.uid
+        && incoming().approval_status == 'pending'
+        && incoming().approved_by == ''
+        && incoming().reject_reason == ''
+        && incoming().returned_at == ''
+        && incoming().created_at == request.time
+        && incoming().updated_at == request.time
+        && isAuthorizedUser()
+        && exists(/databases/$(database)/documents/equipment/$(incoming().equipment_id))
+        && get(/databases/$(database)/documents/equipment/$(incoming().equipment_id)).data.status == 'available';
+
+      allow update: if isSignedIn()
+        && isValidId(loanId)
+        && isValidEquipmentLoan(incoming())
+        && incoming().loan_id == existing().loan_id
+        && incoming().equipment_id == existing().equipment_id
+        && incoming().equipment_type == existing().equipment_type
+        && incoming().management_number == existing().management_number
+        && incoming().user_id == existing().user_id
+        && incoming().user_name == existing().user_name
+        && incoming().start_at == existing().start_at
+        && incoming().due_at == existing().due_at
+        && incoming().purpose == existing().purpose
+        && incoming().created_at == existing().created_at
+        && incoming().updated_at == request.time
+        && existing().approval_status in ['pending', 'approved']
+        && (
+          // Action 1: Employee cancels own pending request
+          (
+            existing().user_id == request.auth.uid
+            && isAuthorizedUser()
+            && existing().approval_status == 'pending'
+            && incoming().approval_status == 'cancelled'
+            && incoming().diff(existing()).affectedKeys().hasOnly(['approval_status', 'updated_at'])
+          )
+          // Action 2: Facility manager approves pending request (atomically transitions available -> rented)
+          || (
+            isAdmin()
+            && existing().approval_status == 'pending'
+            && incoming().approval_status == 'approved'
+            && incoming().approved_by == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly(['approval_status', 'approved_by', 'updated_at'])
+            && get(/databases/$(database)/documents/equipment/$(existing().equipment_id)).data.status == 'available'
+            && getAfter(/databases/$(database)/documents/equipment/$(existing().equipment_id)).data.status == 'rented'
+          )
+          // Action 3: Facility manager rejects pending request
+          || (
+            isAdmin()
+            && existing().approval_status == 'pending'
+            && incoming().approval_status == 'rejected'
+            && incoming().approved_by == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly(['approval_status', 'approved_by', 'reject_reason', 'updated_at'])
+          )
+          // Action 4: Facility manager completes equipment return (atomically restores equipment available)
+          || (
+            isAdmin()
+            && existing().approval_status == 'approved'
+            && incoming().approval_status == 'returned'
+            && incoming().returned_at.size() >= 10
+            && incoming().diff(existing()).affectedKeys().hasOnly(['approval_status', 'returned_at', 'updated_at'])
+            && getAfter(/databases/$(database)/documents/equipment/$(existing().equipment_id)).data.status == 'available'
+          )
+        );
+
+      allow delete: if false;
+    }
+
+    // 9. In-App Notifications
+    match /notifications/{notificationId} {
+      allow get: if isSignedIn()
+        && isValidId(notificationId)
+        && (existing().user_id == request.auth.uid || (existing().target_scope == 'admin' && isAdmin()));
+
+      allow list: if isSignedIn()
+        && (resource.data.user_id == request.auth.uid || (resource.data.target_scope == 'admin' && isAdmin()));
+
+      allow create: if isSignedIn()
+        && isValidId(notificationId)
+        && isValidNotification(incoming())
+        && incoming().notification_id == notificationId
+        && incoming().is_read == false
+        && incoming().created_at == request.time
+        && (
+          isAdmin()
+          || (
+            isAuthorizedUser()
+            && (
+              (incoming().target_scope == 'user' && incoming().user_id == request.auth.uid)
+              || (incoming().target_scope == 'admin' && incoming().user_id == 'ADMIN_INBOX' && incoming().type == 'loan_requested')
+            )
+          )
+        );
+
+      allow update: if isSignedIn()
+        && isValidId(notificationId)
+        && isValidNotification(incoming())
+        && incoming().notification_id == existing().notification_id
+        && incoming().user_id == existing().user_id
+        && incoming().target_scope == existing().target_scope
+        && incoming().title == existing().title
+        && incoming().message == existing().message
+        && incoming().type == existing().type
+        && incoming().related_id == existing().related_id
+        && incoming().created_at == existing().created_at
+        && incoming().is_read == true
+        && incoming().diff(existing()).affectedKeys().hasOnly(['is_read'])
+        && (existing().user_id == request.auth.uid || (existing().target_scope == 'admin' && isAdmin()));
+
+      allow delete: if false;
+    }
+
+    // 10. Activity Logs (Immutable Audit Trail)
+    match /activity_logs/{logId} {
+      allow get: if isSignedIn() && isValidId(logId) && isAdmin();
+      allow list: if isAdmin();
+
+      allow create: if isSignedIn()
+        && isValidId(logId)
+        && isValidActivityLog(incoming())
+        && incoming().log_id == logId
+        && incoming().actor_id == request.auth.uid
+        && incoming().created_at == request.time
+        && isAuthorizedUser();
+
+      allow update, delete: if false;
+    }
+
+    // 11. Policy Settings (Configurable cancel deadline & 3-day calendar/business rule)
+    match /settings/{settingId} {
+      allow get: if isSignedIn() && isValidId(settingId);
+      allow list: if false;
+
+      allow create: if isSignedIn()
+        && isValidId(settingId)
+        && isValidPolicySettings(incoming())
+        && incoming().updated_at == request.time
+        && isAdmin();
+
+      allow update: if isSignedIn()
+        && isValidId(settingId)
+        && isValidPolicySettings(incoming())
+        && incoming().updated_at == request.time
+        && isAdmin()
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'cancel_deadline_minutes', 'loan_day_calc_mode', 'max_loan_days',
+          'max_room_hours', 'booking_horizon_days', 'updated_at'
+        ]);
+
+      allow delete: if false;
+    }
+  }
+}

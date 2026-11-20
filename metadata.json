@@ -1,0 +1,6 @@
+{
+  "name": "오피스 시설매니저",
+  "description": "사무실 회의실 예약과 공용 비품 대여·승인·반납을 통합 관리하는 반응형 업무용 웹앱",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

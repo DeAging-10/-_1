@@ -1,0 +1,237 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Employee or facility manager account issued by an administrator. Never stores plaintext passwords.",
+      "type": "object",
+      "properties": {
+        "user_id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "login_id": { "type": "string", "minLength": 2, "maxLength": 80, "pattern": "^[a-zA-Z0-9._@\\-]+$" },
+        "email": { "type": "string", "format": "email", "maxLength": 160 },
+        "department": { "type": "string", "maxLength": 60 },
+        "role": { "type": "string", "enum": ["employee", "admin"] },
+        "status": { "type": "string", "enum": ["active", "inactive"] },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["user_id", "name", "login_id", "email", "role", "status", "created_at", "updated_at"]
+    },
+    "AdminRegistry": {
+      "title": "AdminRegistry",
+      "description": "Authoritative RBAC lookup record marking an active facility manager.",
+      "type": "object",
+      "properties": {
+        "user_id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "granted_by": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["user_id", "granted_by", "created_at"]
+    },
+    "InvitedUser": {
+      "title": "InvitedUser",
+      "description": "Pre-authorized employee invitation issued by a facility manager for Google sign-in onboarding.",
+      "type": "object",
+      "properties": {
+        "invite_id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "format": "email", "maxLength": 160 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "login_id": { "type": "string", "minLength": 2, "maxLength": 80, "pattern": "^[a-zA-Z0-9._@\\-]+$" },
+        "department": { "type": "string", "maxLength": 60 },
+        "role": { "type": "string", "enum": ["employee", "admin"] },
+        "status": { "type": "string", "enum": ["pending", "claimed", "revoked"] },
+        "created_by": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["invite_id", "email", "name", "login_id", "role", "status", "created_by", "created_at", "updated_at"]
+    },
+    "Room": {
+      "title": "Room",
+      "description": "Office meeting room located on floor 7 or floor 10.",
+      "type": "object",
+      "properties": {
+        "room_id": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "room_name": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "floor": { "type": "number" },
+        "capacity": { "type": "number" },
+        "amenities": { "type": "string", "maxLength": 120 },
+        "status": { "type": "string", "enum": ["available", "unavailable"] },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["room_id", "room_name", "floor", "capacity", "status", "updated_at"]
+    },
+    "RoomReservation": {
+      "title": "RoomReservation",
+      "description": "Confirmed or cancelled meeting room booking.",
+      "type": "object",
+      "properties": {
+        "reservation_id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "room_id": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "room_name": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "floor": { "type": "number" },
+        "user_id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "user_name": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "date": { "type": "string", "minLength": 10, "maxLength": 10, "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "start_hour": { "type": "number" },
+        "end_hour": { "type": "number" },
+        "start_at": { "type": "string", "maxLength": 40 },
+        "end_at": { "type": "string", "maxLength": 40 },
+        "purpose": { "type": "string", "maxLength": 120 },
+        "status": { "type": "string", "enum": ["confirmed", "cancelled"] },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["reservation_id", "room_id", "room_name", "floor", "user_id", "user_name", "date", "start_hour", "end_hour", "start_at", "end_at", "status", "created_at", "updated_at"]
+    },
+    "RoomSlot": {
+      "title": "RoomSlot",
+      "description": "Atomic 1-hour lock document (roomId_YYYY-MM-DD_HH) preventing concurrent double bookings at database level.",
+      "type": "object",
+      "properties": {
+        "slot_id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "room_id": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "reservation_id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "user_id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "user_name": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "date": { "type": "string", "minLength": 10, "maxLength": 10, "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "hour": { "type": "number" },
+        "status": { "type": "string", "enum": ["booked"] },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["slot_id", "room_id", "reservation_id", "user_id", "user_name", "date", "hour", "status", "created_at"]
+    },
+    "Equipment": {
+      "title": "Equipment",
+      "description": "Shared office equipment stored in the 7th floor storage room.",
+      "type": "object",
+      "properties": {
+        "equipment_id": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "type": { "type": "string", "enum": ["laptop", "tablet", "camera"] },
+        "management_number": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "storage_location": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "status": { "type": "string", "enum": ["available", "rented", "unavailable"] },
+        "current_loan_id": { "type": "string", "maxLength": 128 },
+        "current_borrower_name": { "type": "string", "maxLength": 60 },
+        "current_due_at": { "type": "string", "maxLength": 40 },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["equipment_id", "type", "management_number", "storage_location", "status", "updated_at"]
+    },
+    "EquipmentLoan": {
+      "title": "EquipmentLoan",
+      "description": "Equipment loan request, approval status, due date, and return completion record.",
+      "type": "object",
+      "properties": {
+        "loan_id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "equipment_id": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "equipment_type": { "type": "string", "enum": ["laptop", "tablet", "camera"] },
+        "management_number": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "user_id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "user_name": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "start_at": { "type": "string", "minLength": 10, "maxLength": 40 },
+        "due_at": { "type": "string", "minLength": 10, "maxLength": 40 },
+        "purpose": { "type": "string", "maxLength": 160 },
+        "approval_status": { "type": "string", "enum": ["pending", "approved", "rejected", "returned", "cancelled"] },
+        "approved_by": { "type": "string", "maxLength": 128 },
+        "reject_reason": { "type": "string", "maxLength": 160 },
+        "returned_at": { "type": "string", "maxLength": 40 },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["loan_id", "equipment_id", "equipment_type", "management_number", "user_id", "user_name", "start_at", "due_at", "approval_status", "created_at", "updated_at"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "In-app notification for reservations, cancellations, loan requests, approvals, rejections, due reminders, and returns.",
+      "type": "object",
+      "properties": {
+        "notification_id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "user_id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "target_scope": { "type": "string", "enum": ["user", "admin"] },
+        "title": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "message": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "type": { "type": "string", "enum": ["room_booked", "room_cancelled", "loan_requested", "loan_approved", "loan_rejected", "return_due", "loan_returned"] },
+        "related_id": { "type": "string", "maxLength": 128 },
+        "is_read": { "type": "boolean" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["notification_id", "user_id", "target_scope", "title", "message", "type", "is_read", "created_at"]
+    },
+    "ActivityLog": {
+      "title": "ActivityLog",
+      "description": "Immutable audit log of facility reservations, loans, approvals, returns, and account administration.",
+      "type": "object",
+      "properties": {
+        "log_id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "actor_id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "actor_name": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "action": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "target_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["log_id", "actor_id", "actor_name", "action", "target_id", "summary", "created_at"]
+    },
+    "PolicySettings": {
+      "title": "PolicySettings",
+      "description": "Configurable office facility booking and loan policies managed by the facility manager.",
+      "type": "object",
+      "properties": {
+        "cancel_deadline_minutes": { "type": "number" },
+        "loan_day_calc_mode": { "type": "string", "enum": ["calendar", "business"] },
+        "max_loan_days": { "type": "number" },
+        "max_room_hours": { "type": "number" },
+        "booking_horizon_days": { "type": "number" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["cancel_deadline_minutes", "loan_day_calc_mode", "max_loan_days", "max_room_hours", "booking_horizon_days", "updated_at"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Employee and facility manager accounts"
+    },
+    "/admins/{adminUid}": {
+      "schema": { "$ref": "#/entities/AdminRegistry" },
+      "description": "Trusted facility manager RBAC lookup documents"
+    },
+    "/invited_users/{inviteId}": {
+      "schema": { "$ref": "#/entities/InvitedUser" },
+      "description": "Pre-authorized employee invitations created by facility managers"
+    },
+    "/rooms/{roomId}": {
+      "schema": { "$ref": "#/entities/Room" },
+      "description": "11 office meeting rooms across floors 7 and 10"
+    },
+    "/room_reservations/{reservationId}": {
+      "schema": { "$ref": "#/entities/RoomReservation" },
+      "description": "Meeting room bookings"
+    },
+    "/room_slots/{slotId}": {
+      "schema": { "$ref": "#/entities/RoomSlot" },
+      "description": "Atomic hourly lock documents preventing double bookings"
+    },
+    "/equipment/{equipmentId}": {
+      "schema": { "$ref": "#/entities/Equipment" },
+      "description": "13 shared equipment items stored in 7th floor storage"
+    },
+    "/equipment_loans/{loanId}": {
+      "schema": { "$ref": "#/entities/EquipmentLoan" },
+      "description": "Equipment loan requests, approvals, and returns"
+    },
+    "/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/Notification" },
+      "description": "In-app notifications for users and facility managers"
+    },
+    "/activity_logs/{logId}": {
+      "schema": { "$ref": "#/entities/ActivityLog" },
+      "description": "Immutable operational audit logs"
+    },
+    "/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/PolicySettings" },
+      "description": "Configurable policy settings document (settings/policies)"
+    }
+  }
+}
